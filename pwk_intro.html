@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<meta charset="utf-8" />
+		<link rel="stylesheet" type="text/css" href="css/style.css" />
+		<title>Starting the PwK Labs</title>
+	</head>
+<body>
+<h1>Starting the PwK Labs</h1>
+
+<h2>Organization</h2>
+
+<ol>
+	<li>Make a document to take notes. I recommend a markdown file with each of the hosts as a heading, but do whatever floats your boat. You can see a list of all the possible hosts in the public network on the control panel.</li>
+	<li>Build a directory structure to keep related files. Keep your digital workspace organized.</li>
+</ol>
+
+<h2>Situational Awareness</h2>
+
+<p>Step one of any internal network pentest is to get some understanding of the network you’re up against. This means understanding the servers and services running on it.</p>
+
+<h3>Initial Broad Nmap Scan</h3>
+
+<p>Learning the open ports on the network is the first step to understanding the network itself. However, scanning a full network is time consuming, error-prone, and tedious. An initial nmap scan targeting only a few ports will help almost as much as a full scan, but will take <em>significantly</em> less time.</p>
+
+<p>First, create a list of the possible hosts. This list can be found from the control panel.</p>
+
+<p>Next, perform a limited nmap scan across these hosts. Specifically, you’re just looking for the following ports:</p>
+
+<ul>
+	<li>21: FTP. Could contain interesting files, etc.</li>
+	<li>22: SSH. Linux host, or a weird Windows host</li>
+	<li>53: DNS. Sometimes DNS gets served over TCP. If you find one, it’s usually an important server.</li>
+	<li>80: HTTP. Web servers are a great target and how you’ll get a shell on most Linux boxes here.</li>
+	<li>111: NFS. Same as FTP.</li>
+	<li>443: HTTPS. Same. Sometimes 80/443 will serve different sites.</li>
+	<li>445: SMB. Windows file share protocol. (Nearly) all Windows hosts will have this open. This is a good way to tell if a host is Windows. Access Windows computers with credentials through PSEXEC.</li>
+	<li>1433: MSSQL. Particularly interesting DB.</li>
+	<li>2222: Common alternate port for SSH server.</li>
+	<li>1234: Common dev port</li>
+	<li>3000: Common dev port</li>
+	<li>3306: MySQL. </li>
+	<li>3389: RDP. Windows remote desktop — access Windows computers with </li>
+	<li>5432: PostgreSQL.</li>
+	<li>8000: Common dev port</li>
+	<li>8080: Common alternate HTTP server port. <strong>Default location for Tomcat Admin Panel.</strong> (This will often give code execution.) Also default HTTP Proxy port</li>
+	<li>8888: Common dev port</li>
+	<li>8443: Common alternate HTTPS server port.</li>
+</ul>
+
+<p>Make sure you log the output of the nmap scan, especially in <em>greppable</em> format.</p>
+
+<p>The full command is here:</p>
+
+<pre><code>nmap -sT -Pn -oA &lt;output_name&gt; -p 21,22,53,80,111,443,445,1433,2222,1234,3000,3306,3389,5432,8000,8080,8443,8888 -iL &lt;input_filename&gt;
+</code></pre>
+
+<p>If you don’t know all these flags, make sure you learn them :D</p>
+
+<h3>MSF Version Scans</h3>
+
+<p>Next, learn the types and versions of the servers you’re using. I personally like the Metasploit auxiliary scanning modules for this. I recommend the following scans:</p>
+
+<ul>
+	<li>smb_version: Run against any hosts with :445 open. Gives you the Windows version (e.g. Server 2008 or Windows XP), the server hostname, and the Domain it is connected to.</li>
+	<li>ssh_version: Run against any hosts with :22 or :2222 open. Gives you the SSH version, and usually the distribution of Linux. </li>
+	<li>http_version: Run against any hosts that could have web servers open. Make sure to specify the port you want to scan.</li>
+</ul>
+
+<p>There are a few tricks to make this process a little easier. I’ll use the SMB Version scanner as an example.</p>
+
+<p><br/>We want to extract a list of computers with :445 open. We’ll start off by looking at the Greppable Nmap file:</p>
+
+<pre><code>lunarca@interceptor ~/tmp/place % cat test.gnmap
+
+…omitted for brevity…
+
+Host: 192.168.1.1 ()	Status: Up
+Host: 192.168.1.1 ()	Ports: 53/open/tcp//domain///, 80/open/tcp//http///, 139/open/tcp//netbios-ssn///, 443/filtered/tcp//https///, 445/open/tcp//microsoft-ds///, 10000/open/tcp//snet-sensor-mgmt///, 49152/open/tcp//unknown///, 49153/open/tcp//unknown///	Ignored State: closed (992)
+Host: 192.168.1.134 ()	Status: Up
+Host: 192.168.1.134 ()	Ports: 7676/open/tcp//imqbrokerd///, 8080/open/tcp//http-proxy///, 8443/open/tcp//https-alt///	Ignored State: closed (997)
+Host: 192.168.1.139 ()	Status: Up
+Host: 192.168.1.139 ()	Status: Up
+Host: 192.168.1.221 ()	Status: Up
+Host: 192.168.1.221 ()	Ports: 80/open/tcp//http///, 135/open/tcp//msrpc///, 139/open/tcp//netbios-ssn///, 443/open/tcp//https///, 445/open/tcp//microsoft-ds///, 902/open/tcp//iss-realsecure///, 912/open/tcp//apex-mesh///, 2869/open/tcp//icslap///, 2968/open/tcp//enpp///, 4242/open/tcp//vrml-multi-use///, 5357/open/tcp//wsdapi///	Ignored State: filtered (989)
+</code></pre>
+
+<p>Naturally, that’s a little too much. However, this is <em>greppable</em> format. So, let’s use Grep. Since we’re looking for port 445, the string we’ll want to grep for is <code>445/open</code>, as shown below:</p>
+
+<pre><code>lunarca@interceptor ~/tmp/place % cat test.gnmap | grep &quot;445/open&quot;   
+Host: 192.168.1.1 ()	Ports: 53/open/tcp//domain///, 80/open/tcp//http///, 139/open/tcp//netbios-ssn///, 443/filtered/tcp//https///, 445/open/tcp//microsoft-ds///, 10000/open/tcp//snet-sensor-mgmt///, 49152/open/tcp//unknown///, 49153/open/tcp//unknown///	Ignored State: closed (992)
+Host: 192.168.1.221 ()	Ports: 80/open/tcp//http///, 135/open/tcp//msrpc///, 139/open/tcp//netbios-ssn///, 443/open/tcp//https///, 445/open/tcp//microsoft-ds///, 902/open/tcp//iss-realsecure///, 912/open/tcp//apex-mesh///, 2869/open/tcp//icslap///, 2968/open/tcp//enpp///, 4242/open/tcp//vrml-multi-use///, 5357/open/tcp//wsdapi///	Ignored State: filtered (989)
+</code></pre>
+
+<p>Much better. With a smallish list of open ports like this, we could just copy-paste out of this. However, you’ll probably have a huge list of Windows hosts. So, let’s use Cut to help clean this up.</p>
+
+<pre><code>lunarca@interceptor ~/tmp/place % cat test.gnmap | grep &quot;445/open&quot; | cut -d &quot; &quot; -f2          
+192.168.1.1
+192.168.1.221
+</code></pre>
+
+<p>As you can see, we are using cut with a delimiter of <code>space</code>, and selecting the second field. This neatly clips out the IP addresses of the two hosts in this network with :445 open.</p>
+
+<p>We’ll want this to be stored in a file, both so we’ll be able to keep track of it in the future as well as so we can pass it to metasploit as a <em>target list</em>. </p>
+
+<pre><code>lunarca@interceptor ~/tmp/place % cat test.gnmap | grep &quot;445/open&quot; | cut -d &quot; &quot; -f2 &gt; smb_hosts.txt                                                                         
+lunarca@interceptor ~/tmp/place % cat smb_hosts.txt                                                                                                                           
+192.168.1.1
+192.168.1.221
+</code></pre>
+
+<p>Then, in Metasploit, use the <code>file:///PATH</code> syntax to point to the created file:</p>
+
+<pre><code>msf &gt; use auxiliary/scanner/smb/smb_version
+msf auxiliary(smb_version) &gt; set RHOSTS file:///Users/lunarca/tmp/place/smb_hosts.txt
+RHOSTS =&gt; file:///Users/lunarca/tmp/place/smb_hosts.txt
+msf auxiliary(smb_version) &gt; set THREADS 2
+THREADS =&gt; 2
+msf auxiliary(smb_version) &gt; run
+
+[*] 192.168.1.1:445       - Host could not be identified: Unix (Samba 3.0.28a)
+[*] Scanned 1 of 2 hosts (50% complete)
+[*] 192.168.1.221:445     - Host is running Windows 10 Pro (build:10586) (name:PHOENIX) (domain:WORKGROUP)
+[*] Scanned 2 of 2 hosts (100% complete)
+[*] Auxiliary module execution completed
+</code></pre>
+
+<p>Finally, by using the <code>spool [FILENAME]</code> command in Metasploit, you can log the results of aux modules to a file.</p>
+
+<h3>EyeWitness</h3>
+
+<p><a href="https://github.com/ChrisTruncer/EyeWitness">https://github.com/ChrisTruncer/EyeWitness</a></p>
+
+<p>Use it. Web servers are one of the easiest ways to get shells, even on internal networks.</p>
+
+<p>Keep a close eye on Tomcat management portals, or any custom-written web apps.</p>
+
+<h2>Low-hanging Fruit</h2>
+
+<p>Always start with the low-hanging fruit.</p>
+
+<p>Found a Windows XP or 2003 server? Smack it with the ms08_067 attack (see Metasploit)</p>
+
+<p>Found a Tomcat admin portal? Use the Tomcat WAR Upload module to own it.</p>
+
+<p>Found a webshell? Use it.</p>
+
+<h2>Everything else</h2>
+
+<p>Once you get the low-hanging fruit, it’s time to move on to the more complicated fray. Go box-by-box. Do a full port-scan. Get familiar with the kinds of ports you see normally, and learn to spot things that are different.</p>
+
+<p>The <code>-p-</code> flag on Nmap scans all ports, while normal behavior is to only scan about a thousand of the most common ports. This can be helpful if they’re trying to hide a service.</p>
+
+<p>The <code>-A</code> flag on Nmap puts it in aggressive mode. This will perform automated analysis during the portscan. I recommend for these more deep-dive hosts.</p>
+
+<h2>Tips</h2>
+
+<ul>
+	<li>Don’t get hyper-focused on one box. If you feel like you’re stuck, move on to something else for a while.</li>
+	<li>Meterpreter’s <code>getsystem</code> is not privilege escalation. It will give you <code>NT AUTHORITY\SYSTEM</code> permissions <strong>ONLY IF</strong> you are an admin.</li>
+	<li>Learn the <code>net</code> commands on Windows computers. Specifically, <code>net user [YOUR_USERNAME]</code>. </li>
+	<li>Get familiar with SSH port-forwarding and dynamic proxies. A program called Proxychains will be your friend.</li>
+	<li>Default Passwords for dayyyys. admin/admin, guest/guest, admin/password, etc. They’re everywhere.</li>
+	<li>Some hosts require client-side attacks. Often this will involve owning another host with a web server, then hosting malicious content on it. You can usually see which hosts are talking to each other with Wireshark. (Note: read the ARP traffic.) Otherwise, you can tell based on the HTTP server logs.</li>
+	<li>Linux privilege escalation is complex, and there’s a lot of it.</li>
+	<li>Remote Desktop is really useful. Don’t be afraid to use it. </li>
+	<li>If you have a <code>SYSTEM</code> level webshell on a Windows computer, you can transform it into an interactive session by creating a new local administrator user.</li>
+	<li>If you have a webshell on a Linux computer you can get a netcat reverse shell. If netcat isn’t installed, or a version of netcat without the <code>-e</code> flag is installed, you can probably use one of <a href="http://pentestmonkey.net/cheat-sheet/shells/reverse-shell-cheat-sheet">these options</a>. I recommend the bash one, though the secondary netcat one is freaking awesome.</li>
+	<li>To make reverse shells a little easier to use, you can use this python one-liner: <code>python -c &#39;import pty;pty.spawn(&quot;/bin/bash&quot;)&#39;</code>. This spawns a significantly better interactive shell.</li>
+	<li>SQL Injection is almost always code execution. On MSSQL there’s <code>xp_cmdshell</code>, on MySQL there’s <code>INSERT INTO OUTFILE</code>. These can all be disabled, but they can also all be re-enabled with the right permissions.</li>
+	<li>Remote File Inclusion is <em>always</em> code execution. Be on the lookout. Remember that you can’t have your RFI payload end in the <code>.php</code> extension, otherwise it will execute on <strong>your computer</strong>.</li>
+	<li>Local File Inclusion is <em>usually</em> code execution. Look up “Log Poisoning” attacks, or otherwise try to find ways to include PHP/etc code.</li>
+	<li><strong>IF YOU CAN’T FIGURE OUT HOW TO OWN IT, YOU DON’T HAVE ENOUGH INFORMATION. TRY HARDER. ENUMERATE MORE.</strong></li>
+</ul>
+
+<h2>Resources</h2>
+
+<p><a href="https://github.com/ChrisTruncer/EyeWitness%0A">https://github.com/ChrisTruncer/EyeWitness</a></p>
+
+<p><a href="https://blog.g0tmi1k.com/2011/08/basic-linux-privilege-escalation/">https://blog.g0tmi1k.com/2011/08/basic-linux-privilege-escalation/</a></p>
+
+<p><a href="http://pentestmonkey.net/cheat-sheet/shells/reverse-shell-cheat-sheet">http://pentestmonkey.net/cheat-sheet/shells/reverse-shell-cheat-sheet</a></p>
+
+</body>
+</html>
+
